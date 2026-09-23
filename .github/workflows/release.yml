@@ -25,6 +25,8 @@ jobs:
     defaults:
       run:
         shell: pwsh
+    env:
+      PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,6 +42,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
       - name: Run synthetic regression tests (no Outlook mailbox access)
         run: |
+          # Keep fixtures short; production path safety remains enabled.
+          $testTemp = Join-Path $env:RUNNER_TEMP 'mail-tests'
+          New-Item -ItemType Directory -Force $testTemp | Out-Null
+          $env:TEMP = $testTemp
+          $env:TMP = $testTemp
           .venv/Scripts/python -m unittest discover -s tests -v
           if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed' }
       - name: Build portable and source packages

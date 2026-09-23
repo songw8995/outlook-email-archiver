@@ -116,7 +116,8 @@ class ArchiverTests(unittest.TestCase):
         events = []
         first = export_archive(self.config, limit=5, emit=events.append, session_factory=self.factory)
         self.assertEqual(first["selected"], 5)
-        self.assertEqual(first["success"] + first["warning"], 5)
+        self.assertEqual(first["success"] + first["warning"], 5,
+                         Path(first["failures"]).read_text(encoding="utf-8-sig"))
         self.assertEqual(len(list(self.root.rglob("metadata.json"))), 5)
 
         FakeSession.fail_attachment = True

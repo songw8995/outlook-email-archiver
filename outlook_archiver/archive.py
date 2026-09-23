@@ -703,6 +703,8 @@ def _write_run_report(path: Path, run_id: str, config: dict[str, Any], scan: dic
 
 
 def rebuild_indexes(root: Path, *, emit: Callable[[dict[str, Any]], None] = lambda event: None, mode: str = "full") -> dict[str, Any]:
+    # Journal paths are resolved by ensure_within; normalize aliases here too.
+    root = Path(root).resolve()
     if mode not in {"incremental", "full"}:
         raise ValueError("未知索引更新方式")
     records: list[dict[str, Any]] = []

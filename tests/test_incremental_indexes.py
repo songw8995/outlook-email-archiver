@@ -69,3 +69,9 @@ class IncrementalIndexTests(unittest.TestCase):
         self.item('old', 'old'); rebuild_indexes(self.root)
         (self.root / 'indexes' / 'emails.csv').write_text('broken\n')
         self.assertEqual(rebuild_indexes(self.root, mode='incremental')['scanned'], 1)
+
+    def test_noncanonical_root_keeps_new_index_entries(self):
+        self.item('old', 'old'); rebuild_indexes(self.root)
+        self.item('new', 'new')
+        result = rebuild_indexes(self.root / 'state' / '..', mode='incremental')
+        self.assertEqual((result['messages'], result['scanned']), (2, 1))
