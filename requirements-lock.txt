@@ -1,0 +1,7 @@
+beautifulsoup4==4.13.5
+markdownify==1.2.0
+pywin32==311
+six==1.17.0
+soupsieve==2.9.2
+typing_extensions==4.16.0
+

@@ -1,0 +1,75 @@
+name: Build and publish Windows portable release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - outlook_archiver/__init__.py
+      - .github/workflows/release.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portable-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == 'songw8995/outlook-email-archiver'
+    runs-on: windows-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          architecture: x64
+      - name: Install locked dependencies in isolated environment
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python -m pip install -r requirements-lock.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
+      - name: Run synthetic regression tests (no Outlook mailbox access)
+        run: |
+          .venv/Scripts/python -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed' }
+      - name: Build portable and source packages
+        run: |
+          .venv/Scripts/python packaging/build_release.py
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+      - name: Verify ZIP contents, checksums and portable startup
+        run: |
+          $releaseDir = Get-ChildItem releases -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          $portableDir = Get-ChildItem $releaseDir.FullName -Directory -Filter '*Windows-x64' | Select-Object -First 1
+          .venv/Scripts/python -c "import pathlib,zipfile,hashlib; p=pathlib.Path(r'$($releaseDir.FullName)'); z=list(p.glob('*.zip')); assert len(z)==2; assert all(zipfile.ZipFile(f).testzip() is None for f in z); assert all(hashlib.sha256((p/n).read_bytes()).hexdigest()==h for h,n in (s.split('  ') for s in (p/'SHA256SUMS.txt').read_text().splitlines())); assert all(any(n.endswith('/LICENSE') for n in zipfile.ZipFile(f).namelist()) for f in z)"
+          if ($LASTEXITCODE -ne 0) { throw 'Package validation failed' }
+          Push-Location $portableDir.FullName
+          try {
+            & .\runtime\python.exe -c "from outlook_archiver.gui import App; a=App(); a.update_idletasks(); a.destroy(); print('PORTABLE_START_OK')"
+            if ($LASTEXITCODE -ne 0) { throw 'Portable startup failed' }
+          } finally { Pop-Location }
+      - name: Publish new version without overwriting existing releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = .venv/Scripts/python -c "from outlook_archiver import __version__; print(__version__)"
+          $tag = "v$version"
+          $existing = gh release list --repo $env:GITHUB_REPOSITORY --limit 100 --json tagName | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect existing releases' }
+          if ($existing.tagName -contains $tag) {
+            Write-Host "$tag already exists; its files are not overwritten."
+            exit 0
+          }
+          $releaseDir = Get-ChildItem releases -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          $assets = @(Get-ChildItem $releaseDir.FullName -File | Where-Object { $_.Extension -eq '.zip' -or $_.Name -eq 'SHA256SUMS.txt' } | ForEach-Object FullName)
+          gh release create $tag @assets --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "Outlook Markdown $version" --notes-file RELEASE_NOTES.md
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
